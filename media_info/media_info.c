@@ -1,27 +1,9 @@
 ﻿#include "libavformat/avformat.h"
 #include "media_info.h"
-#include <libexif/exif-data.h>
+#include "image_info.h"
+	
+#include "internel.h"
 
-#define DEBUG_ENABLE
-
-#ifdef DEBUG_ENABLE
-#define LOG_E(fmt, args...) fprintf(stderr, fmt, ##args); 
-#define LOG_I(fmt, args...) fprintf(stderr, fmt, ##args); 
-#define LOG_W(fmt, args...) fprintf(stderr, fmt, ##args); 
-#else
-#define LOG_E(fmt, args...)
-#define LOG_I(fmt, args...)
-#define LOG_W(fmt, args...)
-#endif
-
-#define safe_free(p) do{\
-    if((p) != NULL)\
-    {\
-        free((p));\
-        (p) = NULL;\
-    }\
-    }while(0)
-    
 	#if 0
 //request:	pp_dest must be NULL
 //if `max_size` is less than the len of `p_src`+1, just malloc `max_size`.in case p_src is not a string pointer and may malloc a large size of mem.
@@ -31,7 +13,7 @@ static int anstrcpy(char** pp_dest, const char* p_src, int max_size)
 		LOG_E("anstrcpy error: target pointer has been alloc\n");
 		return -1;
 	}
-	if (p_src == NULL) {
+	if (p_src == NULL) {
 		LOG_E("src is NULL\n");
 		return 0;		
 	}
@@ -63,10 +45,13 @@ void ffmpeg_release_info(AVFormatContext **ppFormatCtx, AVCodecContext **ppCodec
 //obtain the first stream of 'type' from a file 
 int ffmpeg_obtain_info(const char* path, AVFormatContext **ppFormatCtx, AVCodecContext **ppCodecCtx, AVCodec **ppCodec, int type)
 {
-	int i=0, stream=0;
+	int i=0, stream=0, ret = 0;
 	av_register_all();
-	if( avformat_open_input(ppFormatCtx, path, NULL, NULL) != 0 ) {
+	if( (ret = avformat_open_input(ppFormatCtx, path, NULL, NULL)) != 0 ) {
 		LOG_E("avformat_open_input failed\n");
+    char errbuf[128];
+    av_strerror(ret, errbuf, sizeof(errbuf));
+    fprintf(stderr, "Error while filtering: %s\n", errbuf);
 		return -1;
 	}
 	if( avformat_find_stream_info(*ppFormatCtx, NULL ) < 0 ){
@@ -148,9 +133,10 @@ int get_audio_media_info(const char *path,AUDIO_MEDIA_INFO** ppAudioMediaInfo)
 	(*ppAudioMediaInfo)->duration = duration;
 	ffmpeg_release_info(&pFormatCtx, &pCodecCtx);
 	return 0;
+//err_info:
+	free_audio_media_info(ppAudioMediaInfo);
 err:
 	ffmpeg_release_info(&pFormatCtx, &pCodecCtx);
-	free_audio_media_info(ppAudioMediaInfo);
 	return ret;
 }
 
@@ -184,71 +170,11 @@ int get_video_media_info(const char *path,VIDEO_MEDIA_INFO** ppVideoMediaInfo)
 	
 	ffmpeg_release_info(&pFormatCtx, &pCodecCtx);
 	return 0;
+//err_info:
+	free_video_media_info(ppVideoMediaInfo);
 err:
 	ffmpeg_release_info(&pFormatCtx, &pCodecCtx);
-	free_video_media_info(ppVideoMediaInfo);
 	return ret;
-}
-
-//judge if tags match,if so copy and return   
-#define JUDGE_AND_FILL_EXIF(entry, ptr, tag, tag2) { \
-	if (strcmp(tag, #tag2) == 0) { \
-		exif_entry_get_value((entry), (ptr)->tag2, sizeof((ptr)->tag2)); \
-		return ; \
-	} \
-}
-
-static void content_foreach_func(ExifEntry *entry, void *callback_data)
-{
-  #if 0
-  char buf[2000];
-  printf("    Entry %p: %s (%s)\n"
-	 "      Size, Comps: %d, %d\n"
-	 "      Value: %s\n", 
-	 entry,
-	 exif_tag_get_name(entry->tag),
-	 exif_format_get_name(entry->format),
-	 entry->size,
-	 (int)(entry->components),
-	 exif_entry_get_value(entry, buf, sizeof(buf)));
-#endif
-  IMAGE_MEDIA_INFO* pImageMediaInfo = (IMAGE_MEDIA_INFO*)callback_data;
-  const char* tag = exif_tag_get_name(entry->tag);
-  JUDGE_AND_FILL_EXIF(entry, pImageMediaInfo, tag, ApertureValue);
-  JUDGE_AND_FILL_EXIF(entry, pImageMediaInfo, tag, MaxApertureValue);
-  JUDGE_AND_FILL_EXIF(entry, pImageMediaInfo, tag, CameraType);
-  JUDGE_AND_FILL_EXIF(entry, pImageMediaInfo, tag, ExposureBiasValue);
-  JUDGE_AND_FILL_EXIF(entry, pImageMediaInfo, tag, ExposureTime);
-  JUDGE_AND_FILL_EXIF(entry, pImageMediaInfo, tag, Flash);
-  JUDGE_AND_FILL_EXIF(entry, pImageMediaInfo, tag, FocalLength);
-  JUDGE_AND_FILL_EXIF(entry, pImageMediaInfo, tag, MeteringMode);
-  JUDGE_AND_FILL_EXIF(entry, pImageMediaInfo, tag, DateTime);
-  JUDGE_AND_FILL_EXIF(entry, pImageMediaInfo, tag, Make);
-  JUDGE_AND_FILL_EXIF(entry, pImageMediaInfo, tag, ISOSpeedRatings);
-  return;
-}
-
-static void data_foreach_func(ExifContent *content, void *callback_data)
-{
-  exif_content_foreach_entry(content, content_foreach_func, callback_data);
-  return;
-}
-
-int get_image_exif_info(const char *path,IMAGE_MEDIA_INFO* pImageMediaInfo)
-{
-	ExifData *d = NULL;
-	if ( (d = exif_data_new_from_file(path)) == NULL) {
-		//possibly the file does not has exif info.
-		LOG_I("exif_data_new_from_file failed, path=%s\n", path);
-		goto err;
-	}
-	exif_data_foreach_content(d, data_foreach_func, pImageMediaInfo);
-	exif_data_unref(d);
-	return 0;
-err:
-	exif_data_unref(d);	
-	//ignore error even if error happen
-	return 0;
 }
 
 #if 0
@@ -282,7 +208,6 @@ err:
 	return ret;
 	
 }
-#endif
 //the file type that has exif data
 enum EXIF_FILE_POSTFIX {
 	EXIF_FILE_JPG = 0,
@@ -315,6 +240,67 @@ static int file_has_exif_info(const char* path)
 	return 0;
 }
 
+#endif
+
+
+int get_image_media_info(const char *src_img_file,IMAGE_MEDIA_INFO** ppImageMediaInfo)
+{
+	int image_type = 0;
+	int ret = 0;	
+
+	image_type = check_image_type(src_img_file);
+	if(image_type < 0){
+		printf("check image type failed(%s)!\r\n", src_img_file);
+		ret = -1;
+		goto err;
+	}
+
+	*ppImageMediaInfo = calloc(1, sizeof(IMAGE_MEDIA_INFO));
+	if (!*ppImageMediaInfo) {
+		LOG_E("malloc failed\n");
+		ret = -1;
+		goto err;
+	}
+
+	switch(image_type){
+		case IS_JPEG_TYPE:
+			ret = get_jpeg_media_info(src_img_file, *ppImageMediaInfo);
+			//ret = reduce_jpeg_image(src_img_file, p_request);
+			if(ret < 0){
+				LOG_E("reduce jpeg image fail !\r\n");	
+				ret = -1;
+				goto err_info;
+			}
+			break;
+		case IS_PNG_TYPE:
+			ret = get_png_media_info(src_img_file, *ppImageMediaInfo);
+			if(ret < 0){
+				LOG_E("reduce png image fail !\r\n");	
+				ret = -1;
+				goto err_info;
+			}
+			break;
+		case IS_GIF_TYPE:
+			//ret = reduce_gif_image(src_img_file, p_request);
+			if(ret < 0){
+				LOG_E("reduce jpeg image fail !\r\n");	
+				ret = -1;
+				goto err_info;
+			}
+			break;
+		default:
+			printf("unknown image type: (%d)!\r\n", image_type);
+			ret = -1;
+			goto err_info;
+	}
+	return 0;
+err_info:
+	free_image_media_info(ppImageMediaInfo);
+err:
+	return ret;
+}
+
+#if 0
 int get_image_media_info(const char *path,IMAGE_MEDIA_INFO** ppImageMediaInfo)
 {
 	AVFormatContext *pFormatCtx = NULL;
@@ -322,6 +308,7 @@ int get_image_media_info(const char *path,IMAGE_MEDIA_INFO** ppImageMediaInfo)
 	AVCodecContext  *pCodecCtx = NULL;
 	AVCodec         *pCodec = NULL;
 
+	av_log_set_level(AV_LOG_TRACE);
 	if (ffmpeg_obtain_info(path, &pFormatCtx, &pCodecCtx, &pCodec, AVMEDIA_TYPE_VIDEO) < 0) {
 		ret = -1;
 		goto err;
@@ -348,7 +335,7 @@ err:
 	return ret;
 }
 
-
+#endif
 
 //ppVideoMediaInfo will become NULL
 void free_video_media_info(VIDEO_MEDIA_INFO** ppVideoMediaInfo)
