@@ -142,52 +142,56 @@ EXIT:
 
 int get_jpeg_media_info(const char *src_img_file,IMAGE_MEDIA_INFO* pImageMediaInfo)
 {
-	SrcJpegImgInfo src_jpeg_info;
+	struct jpeg_decompress_struct dc_info = {0};
+	int create_compress = 0;
 	int ret = 0;
 	FILE *src_file = NULL;
     
-	memset(&src_jpeg_info, 0, sizeof(SrcJpegImgInfo));
 	if(src_img_file == NULL || pImageMediaInfo == NULL){
 		printf("invalid argument!\r\n");
 		ret = -1;
-		goto EXIT;
+		goto err_no;
 	}
 	
 	src_file = fopen(src_img_file, "rb");
 	if(src_file == NULL){
 		printf("open src image file failed(%s)!\r\n", src_img_file);
 		ret = -1;
-		goto EXIT;
+		goto err_no;
 	}
-	//printf("start decompress!\r\n");
-	src_jpeg_info.dc_info.err = jpeg_std_error(&src_jpeg_info.dc_jerr);
-    /* We set up the normal JPEG error routines, then override error_exit. */
-    src_jpeg_info.dc_jerr.error_exit = my_error_exit;
-     /* Establish the setjmp return context for my_error_exit to use. */
-    if (setjmp(src_jpeg_info.setjmp_buffer)) {
-    /* If we get here, the JPEG code has signaled an error.
-     * We need to clean up the JPEG object, close the input file, and return.
-     */
-        jpeg_destroy_decompress(&src_jpeg_info.dc_info);
+	
+	//setup error handler, quite awful.
+	struct my_error_mgr jerr;
+	bzero(&jerr, sizeof(struct my_error_mgr));
+	dc_info.err = jpeg_std_error(&jerr.pub);
+	jerr.pub.error_exit = my_error_exit;
+	if (setjmp(jerr.setjmp_buffer)) {
 		ret = -1;
-		goto EXIT;
-    }
-    
-	jpeg_create_decompress(&src_jpeg_info.dc_info);
-	jpeg_stdio_src(&src_jpeg_info.dc_info, src_file);
-	jpeg_read_header(&src_jpeg_info.dc_info, TRUE);
+		//本来是打算对start_compress也做一下finish处理的，但想到这个程序已经出错了，
+		//这时再做这个不知会否引起崩溃，所以没加
+		if (create_compress == 1)
+			goto err_create_compress;
+		goto err_file;
+	}
+	
+	jpeg_create_decompress(&dc_info);
+	create_compress = 1;
+	jpeg_stdio_src(&dc_info, src_file);
+	jpeg_read_header(&dc_info, TRUE);
 
-	pImageMediaInfo->XResolution = src_jpeg_info.dc_info.image_width;
-	pImageMediaInfo->YResolution = src_jpeg_info.dc_info.image_height;
+	pImageMediaInfo->XResolution = dc_info.image_width;
+	pImageMediaInfo->YResolution = dc_info.image_height;
 	get_image_exif_info(src_img_file,pImageMediaInfo);
 
+	jpeg_destroy_decompress(&dc_info);
+	fclose(src_file);
 
-	jpeg_destroy_decompress(&src_jpeg_info.dc_info);
-
-	return ret;
-EXIT:
-	if(src_file != NULL)
-		fclose(src_file);
+	return 0;
+err_create_compress:
+	jpeg_destroy_decompress(&dc_info);
+err_file:
+	fclose(src_file);
+err_no:
 	return ret;
 }
 
@@ -215,7 +219,9 @@ int get_png_wh(const char* name, int *m_width, int *m_height)
 		ret = -1;
 		goto err_struct;
 	}
-	setjmp(png_jmpbuf(png_ptr));               
+	if (setjmp(png_jmpbuf(png_ptr))) {
+		goto err_struct;
+	}
 	png_init_io(png_ptr, file);
 	png_read_png(png_ptr, info_ptr, PNG_TRANSFORM_EXPAND, 0);        
 
@@ -247,7 +253,6 @@ int get_png_media_info(const char *src_img_file,IMAGE_MEDIA_INFO* pImageMediaInf
 	}
 	pImageMediaInfo->XResolution = width;
 	pImageMediaInfo->YResolution = height;
-	get_image_exif_info(src_img_file,pImageMediaInfo);
 	return 0;
 err:
 	return ret;

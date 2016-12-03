@@ -280,14 +280,6 @@ int get_image_media_info(const char *src_img_file,IMAGE_MEDIA_INFO** ppImageMedi
 				goto err_info;
 			}
 			break;
-		case IS_GIF_TYPE:
-			//ret = reduce_gif_image(src_img_file, p_request);
-			if(ret < 0){
-				LOG_E("reduce jpeg image fail !\r\n");	
-				ret = -1;
-				goto err_info;
-			}
-			break;
 		default:
 			printf("unknown image type: (%d)!\r\n", image_type);
 			ret = -1;
