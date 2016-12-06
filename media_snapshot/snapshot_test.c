@@ -10,17 +10,13 @@ extern int optind, opterr, optopt;
 
 void usage()
 {
-	printf("Usage: thumbnail_test [-f file] [-w width] [-h height] [-p percent] [-m second] [-o file] [-help] [astv]\n");
+	printf("Usage: thumbnail_test [-f file] [-p percent] [-m second] [-o file] [-help] [astv]\n");
 	printf("Option:\n");
-	//printf("\t -a \t\t\t: creat screenshot by default\n");
-	//printf("\t -s \t\t\t: creat thumbnail for the file by settting\n");
 	printf("\t -y type\t\t: the source file is music or video,\"video\":video ;\"music\":music\n");
 	printf("\t -f file\t\t: the source file\n");
 	printf("\t -o file\t\t: the output filename\n");
 	printf("\t -p percent\t\t: seek percent of source file\n");
 	printf("\t -m second\t\t: seek second of source file\n");
-	//printf("\t -w width \t\t: width of the screenshot\n");		
-	//printf("\t -h height \t\t: height of the screenshot\n");
 	printf("\t -t \t\t\t: show time gap\n");	
 	printf("\t -v \t\t\t: show version number\n");
 	printf("\t -help \t\t\t: show help list\n");
@@ -68,10 +64,10 @@ int main(int argc, char **argv)
 				}
 				break;
 			case 'f':
-				strcpy(dm_context.input_file_name, optarg);
+				dm_context.input_file_name = optarg;
 				break;
 			case 'o':
-				strcpy(dm_context.output_file_name, optarg);
+				dm_context.output_file_name = optarg;
 				break;
 			//case 'a':
 			//	test_auto_flag = 1;			
@@ -80,18 +76,18 @@ int main(int argc, char **argv)
 			//	test_size_flag = 1;
 			//	break;
 			case 'p':
-				memset(dm_context.seek_level, 0, sizeof(dm_context.seek_level));
-				strcpy(dm_context.seek_level, optarg);
+				memset(dm_context.seek_proportion, 0, sizeof(dm_context.seek_proportion));
+				strcpy(dm_context.seek_proportion, optarg);
 				break;
 			case 'm':
 				memset(dm_context.seek_time, 0, sizeof(dm_context.seek_time));
 				strcpy(dm_context.seek_time, optarg);
 				break;
 			case 'w':
-				strcpy(dm_context.width, optarg);
+				//strcpy(dm_context.width, optarg);
 				break;
 			case 'h':
-				strcpy(dm_context.height, optarg);
+				//strcpy(dm_context.height, optarg);
 				break;
 			case 't':
 				time_show_flag = 1;
@@ -109,15 +105,15 @@ int main(int argc, char **argv)
 		
 	}
 	else{
-		if(!strlen(dm_context.seek_level))
-			sprintf(dm_context.seek_level, "20");
-		sprintf(dm_context.nb_pic, "0.001");
+		if(!strlen(dm_context.seek_proportion))
+			sprintf(dm_context.seek_proportion, "20");
+		//sprintf(dm_context.nb_pic, "0.001");
 	}
-	sprintf(dm_context.force_format, "image2");
-	sprintf(dm_context.log_level, "1");
+	//sprintf(dm_context.force_format, "image2");
+	//sprintf(dm_context.log_level, "1");
 
 	gettimeofday(&start_tnow, NULL);
-	if(strlen(dm_context.input_file_name)>0 && strlen(dm_context.output_file_name)>0)
+	if(dm_context.input_file_name && dm_context.output_file_name)
 	{
 	    ret = media_snapshot(&dm_context);
 		if(ret < 0){

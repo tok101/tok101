@@ -20,25 +20,22 @@
 #define SNAPSHOT_H
 
 #define PKG_NAME 		"lib_ffmpeg"
-#define PKG_VERSION		"1.0.00"
+#define PKG_VERSION		"1.1.00"
 
 typedef struct _OptionDmContext {
-    char input_file_name[256];
-	char output_file_name[256];
-	#if 0
-	int seek_time;//s
-	int seek_level;//0-100 percent
-	int width;
-	int height;
-	#else
+    const char* input_file_name;
+	const char* output_file_name;
 	char seek_time[16];//s
-	char seek_level[16];//0-100 percent
-	char width[16];
+	char seek_proportion[16];//0-100 percent
+	
+	//members not implemnet
+	#if 0
+	char width[16];	
 	char height[16]; 
-	#endif
 	char log_level[16];
 	char force_format[16];//force output format
 	char nb_pic[16];//the picture of num for creat
+	#endif
 } OptionDmContext;
 
 
