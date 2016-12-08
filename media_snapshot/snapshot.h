@@ -20,7 +20,7 @@
 #define SNAPSHOT_H
 
 #define PKG_NAME 		"lib_ffmpeg"
-#define PKG_VERSION		"1.1.00"
+#define PKG_VERSION		"1.1.01"
 
 typedef struct _OptionDmContext {
     const char* input_file_name;

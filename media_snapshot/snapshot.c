@@ -48,6 +48,7 @@ int ffmepg_seek_frame(AVFormatContext *pFormatCtx, int videoStream, int64_t time
 		seek_time = (time_s*(stream->time_base.den))/(stream->time_base.num);
 	}
 	else seek_time = time_s * AV_TIME_BASE;
+	LOG_I("seek_time:%"PRId64" do_seek_time:%"PRId64"\n", time_s, seek_time);
 	int	ret = av_seek_frame(pFormatCtx, videoStream, seek_time, AVSEEK_FLAG_BACKWARD); 
 	if (ret < 0) {
 		LOG_E("av_seek_frame error\n");
@@ -227,6 +228,23 @@ err_no:
 }
 
 
+int save_rgb_as_jpeg_byindex(const char* out_file, int index, int image_width, int image_height, uint8_t* image_buffer, int quality)
+{
+	int ret = 0;
+	char* szFilename = NULL;
+	if (asprintf(&szFilename, "%s%d.jpg", out_file, index) < 0) {
+		LOG_E("malloc error\n");
+		ret = -1;
+		goto err_no;
+	}
+	
+	ret = save_rgb_as_jpeg(szFilename, image_width,
+							image_height,image_buffer, quality);
+	safe_free(szFilename);
+err_no:
+	return ret;
+}
+
 int seek_frame(AVFormatContext *pFormatCtx, int videoStream, OptionDmContext *dm_context)
 {
 	int64_t time_s = 0;
@@ -373,7 +391,7 @@ static int do_media_snapshot(AVFormatContext *pFormatCtx, AVCodecContext *pCodec
 	AVFrame         *pFrame;
 	AVFrame         *pFrameRGB;
 	AVPacket        packet;
-	int             frameFinished;
+	int             frameFinished = 0;
 	int             numBytes;
 	uint8_t         *buffer;
 	int ret = 0;
@@ -408,11 +426,24 @@ static int do_media_snapshot(AVFormatContext *pFormatCtx, AVCodecContext *pCodec
 			goto err_buffer;
 		}
 	}
-	while( av_read_frame(pFormatCtx, &packet) >= 0 ) {
+	int i = 0;
+	while(1){
+		if ( av_read_frame(pFormatCtx, &packet) < 0 )  {
+			LOG_E("av_read_frame error, maybe the file is end\n");
+			ret = -1;
+			goto err_buffer;
+		}
+		if (i++ > 2000) {
+			LOG_E("can't find keyframe in 2000 packet, failed\n");
+			av_free_packet(&packet);
+			ret = -1;
+			goto err_buffer;
+		}
 		if( packet.stream_index == videoStream ) {
+			LOG_E("qqqq\n");
 			avcodec_decode_video2(pCodecCtx, pFrame, &frameFinished, &packet);
 
-			if( frameFinished ) {
+			if( frameFinished && pFrame->key_frame==1 ) {
 				struct SwsContext *img_convert_ctx = NULL;
 				img_convert_ctx = 
 					sws_getCachedContext(img_convert_ctx, pCodecCtx->width,
@@ -433,8 +464,11 @@ static int do_media_snapshot(AVFormatContext *pFormatCtx, AVCodecContext *pCodec
 						pCodecCtx->height,pFrameRGB->data[0], JPEG_QUALITY) < 0) {
 					ret = -1;
 					av_free_packet(&packet);
+					sws_freeContext(img_convert_ctx);
 					goto err_buffer;
 				}
+				sws_freeContext(img_convert_ctx);
+				av_free_packet(&packet);
 				break;
 			}
 		}

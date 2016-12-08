@@ -105,8 +105,8 @@ int main(int argc, char **argv)
 		
 	}
 	else{
-		if(!strlen(dm_context.seek_proportion))
-			sprintf(dm_context.seek_proportion, "20");
+		//if(!strlen(dm_context.seek_proportion))
+		//	sprintf(dm_context.seek_proportion, "20");
 		//sprintf(dm_context.nb_pic, "0.001");
 	}
 	//sprintf(dm_context.force_format, "image2");
