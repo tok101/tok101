@@ -115,6 +115,7 @@ static int read_png_file(const char *src_img_file, SrcPngImgInfo *p_src_png_info
     p_src_png_info->info_ptr = png_create_info_struct(p_src_png_info->png_ptr);
     if (!p_src_png_info->info_ptr){
 		printf("png_create_info_struct failed! \n\r");
+		png_destroy_read_struct (&p_src_png_info->png_ptr, NULL, NULL);
 		ret = -1;
 		goto EXIT;
 	}
@@ -142,6 +143,7 @@ static int read_png_file(const char *src_img_file, SrcPngImgInfo *p_src_png_info
     /* read file */
     if (setjmp(png_jmpbuf(p_src_png_info->png_ptr))){
 		printf("[read_png_file] Error during read_image \r\n");
+		png_destroy_read_struct (&p_src_png_info->png_ptr, &p_src_png_info->info_ptr,  NULL);
 		ret = -1;
 		goto EXIT;
 	}
@@ -151,6 +153,11 @@ static int read_png_file(const char *src_img_file, SrcPngImgInfo *p_src_png_info
             p_png_image_data->row_pointers[y] = (png_byte*) malloc(png_get_rowbytes(p_src_png_info->png_ptr,p_src_png_info->info_ptr));
 
     png_read_image(p_src_png_info->png_ptr, p_png_image_data->row_pointers);
+	/* read rest of file, and get additional chunks in info_ptr - REQUIRED */
+	png_read_end (p_src_png_info->png_ptr, p_src_png_info->info_ptr);
+
+	/* clean up after the read, and free any memory allocated - REQUIRED */
+	png_destroy_read_struct (&p_src_png_info->png_ptr, &p_src_png_info->info_ptr,  NULL);
 
 EXIT:
 	if(src_file != NULL)
@@ -308,8 +315,16 @@ static int do_Stretch_Linear_Png(ImgReduceRequest *p_request, PngImageData *p_pn
 	}		
 	
 	p_png_img_data->row_pointers_out = (png_bytep*) malloc(sizeof(png_bytep)*p_request->height);
+	if (!p_png_img_data->row_pointers_out) {
+		printf("malloc row_pointers_out in do_Stretch_Linear_Png failed, size(%u)\n", sizeof(png_bytep)*p_request->height);
+		return -1;
+	}
 	for(y = 0; y < p_request->height; y++){
-		p_png_img_data->row_pointers_out[y] = (png_byte*) malloc(sizeof(png_byte)*p_request->width*3);
+		p_png_img_data->row_pointers_out[y] = (png_byte*) malloc(sizeof(png_byte)*p_request->width*pixel_len);
+		if (!p_png_img_data->row_pointers_out[y]) {
+			printf("malloc row_pointers_out[y] in do_Stretch_Linear_Png failed, size(%u)\n", sizeof(png_byte)*p_request->width*pixel_len);
+			return -1;
+		}
 	}
 
 	for(y = 0; y < p_request->height; y++){
@@ -351,12 +366,6 @@ static int _handle_and_compress_png(SrcPngImgInfo *p_src_png_info,
 		goto EXIT1;
 	}
 
-	p_request->dst_file = fopen(p_request->img_name, "wb");
-	if(p_request->dst_file == NULL){
-		printf("open dst image file failed(%s)!\r\n", p_request->img_name);
-		ret = -1;
-		goto EXIT0;
-	}
 
 	ret = write_png_file(p_request, p_png_img_data);
 	if(ret < 0){
@@ -443,6 +452,5 @@ EXIT:
 	
 	return ret;
 }
-
 
 
