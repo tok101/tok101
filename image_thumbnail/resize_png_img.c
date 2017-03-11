@@ -1,5 +1,5 @@
 #include "resize_png_img.h"
-
+#include <stdlib.h>
 static void _do_png_size_adjust(PngImageData *p_png_image_data, ImgReduceRequest *p_request)
 {
     //for original file, width < height, we should exchange the width and height of output image 
@@ -191,7 +191,30 @@ void process_file_display(int w_Dest,int h_Dest)
 }
 #endif
 
+//print err message,but i am not sure the value of second argument of function:png_create_write_struct, so i don't set these message printer.
+#if 0
+static void PNGCBAPI
+makepng_warning(png_structp png_ptr, png_const_charp message)
+{
+   const char **ep = png_get_error_ptr(png_ptr);
+   const char *name;
 
+   if (ep != NULL && *ep != NULL)
+      name = *ep;
+
+   else
+      name = "libpng";
+
+  fprintf(stderr, "%s: warning: %s\n", name, message);
+}
+
+static void PNGCBAPI
+makepng_error(png_structp png_ptr, png_const_charp message)
+{
+   makepng_warning(png_ptr, message);
+   png_longjmp(png_ptr, 1);
+}
+#endif 
 int write_png_file(ImgReduceRequest *p_request, PngImageData *p_png_img_data)
 {
 	int x, y;
@@ -214,22 +237,17 @@ int write_png_file(ImgReduceRequest *p_request, PngImageData *p_png_img_data)
     src_png_info.info_ptr = png_create_info_struct(src_png_info.png_ptr);
     if (!src_png_info.info_ptr){
 		printf("[write_png_file] png_create_info_struct failed\r\n");
+		png_destroy_write_struct(&src_png_info.png_ptr, NULL);
 		return -1;
 	}
 
     if (setjmp(png_jmpbuf(src_png_info.png_ptr))){
         printf("[write_png_file] Error during init_io\r\n");
+		png_destroy_write_struct(&src_png_info.png_ptr, &src_png_info.info_ptr);
 		return -1;
 	}
 
 	png_init_io(src_png_info.png_ptr, fp);
-
-
-    /* write header */
-    if (setjmp(png_jmpbuf(src_png_info.png_ptr))){
-        printf("[write_png_file] Error during writing header\r\n");
-		return -1;
-	}
 
     //png_set_IHDR(png_ptr, info_ptr, width, height,
     png_set_IHDR(src_png_info.png_ptr, src_png_info.info_ptr, p_request->width, p_request->height,
@@ -237,13 +255,6 @@ int write_png_file(ImgReduceRequest *p_request, PngImageData *p_png_img_data)
                  PNG_COMPRESSION_TYPE_BASE, PNG_FILTER_TYPE_BASE);
 
     png_write_info(src_png_info.png_ptr, src_png_info.info_ptr);
-
-
-    /* write bytes */
-    if (setjmp(png_jmpbuf(src_png_info.png_ptr))){
-        printf("[write_png_file] Error during writing bytes\r\n");
-		return -1;
-	}
 	
 	if(p_png_img_data->row_pointers_out == NULL){
 		printf("row_pointers_out is null");
@@ -252,15 +263,13 @@ int write_png_file(ImgReduceRequest *p_request, PngImageData *p_png_img_data)
 		
 	png_write_image(src_png_info.png_ptr, p_png_img_data->row_pointers_out);
 
-    /* end write */
-    if (setjmp(png_jmpbuf(src_png_info.png_ptr))){
-    	printf("[write_png_file] Error during end of write\r\n");
-		return -1;
-    }
-	
     png_write_end(src_png_info.png_ptr, NULL);
 	
+    /* clean up after the write, and free any memory allocated */
+	png_destroy_write_struct(&src_png_info.png_ptr, &src_png_info.info_ptr);
+	
     fclose(fp);
+	return 0;
 }
 
 #if 0

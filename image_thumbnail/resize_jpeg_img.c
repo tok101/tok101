@@ -4,12 +4,12 @@
 #include <sys/socket.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
+#include <stdlib.h>
 #include <jpeglib.h>
 //#include <setjmp.h>
 
 #include "resize_base.h"
 #include "resize_jpeg_img.h"
-#include "transupp.h"
 #include "exif.h"
 
 struct my_error_mgr {
@@ -262,6 +262,8 @@ static int _handle_accute_compress_jpeg(SrcJpegImgInfo *p_src_jpeg_info,
 		}
 	}
 #endif
+	
+	printf("ccc\n");
 
 	uint8_t *line = (uint8_t *)malloc(p_request->width * p_src_jpeg_info->dc_info.output_components);
 	if(line == NULL)
@@ -372,6 +374,8 @@ static int _handle_and_compress_jpeg(SrcJpegImgInfo *p_src_jpeg_info,
 		p_request->width = p_src_jpeg_info->dc_info.image_width / p_request->scale;
 		p_request->height = p_src_jpeg_info->dc_info.image_height / p_request->scale;
 	}
+	
+	printf("bbb\n");
 
 	if(p_request->is_accurate)
 	{
@@ -496,7 +500,7 @@ int reduce_jpeg_image(const char *src_img_file, ImgReduceRequest **p_request)
 	FILE *src_file = NULL;
 	JSAMPROW row_pointer[1];
 	int rotate_type = 0; 
-	int jxform_value = 0;
+	int degree_to_rotate = 0;
     
 	memset(&img_data, 0, sizeof(JpegImageData));
 	memset(&src_jpeg_info, 0, sizeof(SrcJpegImgInfo));
@@ -585,8 +589,6 @@ int reduce_jpeg_image(const char *src_img_file, ImgReduceRequest **p_request)
 		(void)jpeg_read_scanlines(&src_jpeg_info.dc_info, row_pointer, 1);	
 	}
 	
-	if(src_file != NULL)
-		fclose(src_file);
 
 	ret = get_exif_rotate_type(src_img_file, IMAGE_EXIF_IFD_0);
 	if(ret > 0){
@@ -599,32 +601,28 @@ int reduce_jpeg_image(const char *src_img_file, ImgReduceRequest **p_request)
 
 	switch(rotate_type){
 		case Rotate_Bottom_Right:
-			jxform_value = JXFORM_ROT_180;
+			degree_to_rotate = 180;
 			break;
 		case Rotate_Right_Top:
-			jxform_value = JXFORM_ROT_90;
+			degree_to_rotate = 90;
 			break;
 		case Rotate_Left_Bottom:
-			jxform_value = JXFORM_ROT_270;
+			degree_to_rotate = 270;
 			break;
 		default:
-			jxform_value = 0;
+			degree_to_rotate = 0;
 			break;
 	}
 	
 	ImgReduceRequest **p_img_request = p_request;
-	while((*p_img_request) != NULL){
-		ret = _handle_and_compress_jpeg(&src_jpeg_info, (*p_img_request), &img_data);		
-		//printf("ret : %d, jxform_value: %d\n", ret, jxform_value);
-		if(!ret && jxform_value){
-			//printf("start rotate image\n");
-			ret = rotate_jpeg_image((*p_img_request)->img_name, jxform_value);
-			if(ret == 0){
-				printf("rotate image success\n");
-			} 
-			else{
-				printf("rotate image fail\n");
-			}
+	while((*p_img_request) != NULL) {
+		ret = _handle_and_compress_jpeg(&src_jpeg_info, (*p_img_request), &img_data);
+		if (ret < 0) {
+			fprintf(stderr, "there is an error when handling jpeg reduction, break handling\n");
+			break;
+		}
+		if(!ret && degree_to_rotate){
+			ret = rotate_jpeg_image((*p_img_request)->img_name, degree_to_rotate);
 		}
 		p_img_request += 1;
 	}
@@ -639,6 +637,9 @@ int reduce_jpeg_image(const char *src_img_file, ImgReduceRequest **p_request)
 	jpeg_finish_decompress(&src_jpeg_info.dc_info);
 	jpeg_destroy_decompress(&src_jpeg_info.dc_info);
 	safe_free(img_data.img_data);
+
+	if(src_file != NULL)
+		fclose(src_file);
 
 	//creat_exif_thumbnail(src_img_file, "bb.jpeg");
 	return ret;

@@ -34,6 +34,7 @@ typedef struct rotate_info{
 
 int creat_exif_thumbnail(const char *src_file, char *thumbnail_file);
 int get_exif_rotate_type(const char *src_file, int image_ifd_type);
+int rotate_jpeg_image(const char *src_file, int jxform_value);
 
 #ifdef __cplusplus
 }

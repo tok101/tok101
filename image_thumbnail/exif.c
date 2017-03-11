@@ -3,8 +3,11 @@
 #include <stdlib.h>
 #include <jpeglib.h>
 #include <libexif/exif-loader.h>
+#include <stdlib.h>
+#include <string.h>
+#include <errno.h>
+
 #include "libexif/exif-data.h"
-#include "transupp.h"
 #include "exif.h"
 
 int creat_exif_thumbnail(const char *src_file, char *thumbnail_file)
@@ -129,138 +132,49 @@ int get_exif_rotate_type(const char *src_file, int image_ifd_type)
 	return rotate_type;
 }
 
-
-int rotate_jpeg_image(const char *src_file, int jxform_value)
+#define OUTPUTLINESIZE 256
+static int execute_process(char *cmd)
 {
-	struct jpeg_decompress_struct srcinfo;
-	struct jpeg_compress_struct dstinfo;
-	struct jpeg_error_mgr jsrcerr, jdsterr;
-	jvirt_barray_ptr * src_coef_arrays;
-	jvirt_barray_ptr * dst_coef_arrays;
-	int file_index;
-	static JCOPY_OPTION copyoption;	/* -copy switch */
-	static jpeg_transform_info transformoption; /* image transformation options */
-	/* We assume all-in-memory processing and can therefore use only a
-	* single file pointer for sequential input and output operation. 
-	*/
-	FILE * fp;
+    FILE *pipefd = NULL;
+    char buf[OUTPUTLINESIZE + 1] = {0};
 
-	/* Initialize the JPEG decompression object with default error handling. */
-	srcinfo.err = jpeg_std_error(&jsrcerr);
-	jpeg_create_decompress(&srcinfo);
-	/* Initialize the JPEG compression object with default error handling. */
-	dstinfo.err = jpeg_std_error(&jdsterr);
-	jpeg_create_compress(&dstinfo);
+	printf("execute process(%s)\n", cmd);
 
-	//transformoption.transform = JXFORM_ROT_180;
-	transformoption.transform = jxform_value;
-	jsrcerr.trace_level = jdsterr.trace_level;
-	srcinfo.mem->max_memory_to_use = dstinfo.mem->max_memory_to_use;
-	printf("111transformoption.transform: %d\n", transformoption.transform);
+    pipefd = popen(cmd, "r");
+    if(pipefd == NULL) {
+        fprintf(stderr, "%s popen faild, errno(%d), error(%s)\n", __FUNCTION__, errno, strerror(errno));
+		return -1;
+    }
 
-	if ((fp = fopen(src_file, "rb")) == NULL) {
-	  fprintf(stderr, "%s: can't open %s for reading\n", src_file);
-	  return -1;
+    while(fgets(buf, OUTPUTLINESIZE, pipefd)!=NULL) {
+		fprintf(stdout, "%s", buf);
+    }
+
+    int ret = pclose(pipefd); 
+	if (ret == -1 || !WIFEXITED(ret) || WEXITSTATUS(ret) != 0) {
+		if (ret == -1)
+        	fprintf(stderr, "pclose failed, error(%s)\n", strerror(errno) );
+		else if(!WIFEXITED(ret))
+        	fprintf(stderr, "process(%s) was unabled to exit normally\n", cmd);
+		else
+        	fprintf(stderr, "process(%s) returned errno(%d)\n", cmd, WEXITSTATUS(ret));
+        return -1;
+    }
+	return 0;
+}
+
+
+int rotate_jpeg_image(const char *src_file, int degree_to_rotate)
+{
+	printf("start rotate image, path(%s), rotate(%d)\n", src_file, degree_to_rotate);
+	char* cmd = NULL;
+	asprintf(&cmd, "jpegtran -rotate %d -outfile %s %s", degree_to_rotate, src_file, src_file);
+	if (!cmd) {
+		fprintf(stderr, "%s asprintf failed, errno(%d), error(%s)\n", __FUNCTION__, errno, strerror(errno) );
+		return -1;
 	}
-
-	/* Specify data source for decompression */
-	jpeg_stdio_src(&srcinfo, fp);
-
-	/* Enable saving of extra markers that we want to copy */
-	jcopy_markers_setup(&srcinfo, copyoption);
-
-	/* Read file header */
-	(void) jpeg_read_header(&srcinfo, TRUE);
-
-#if TRANSFORMS_SUPPORTED
-	jtransform_request_workspace(&srcinfo, &transformoption);
-#endif
-	
-	/* Read source file as DCT coefficients */
-	src_coef_arrays = jpeg_read_coefficients(&srcinfo);
-	
-	/* Initialize destination compression parameters from source values */
-	jpeg_copy_critical_parameters(&srcinfo, &dstinfo);
-
-	//dstinfo.image_height = srcinfo.image_height/16*16;
-	//dstinfo.image_width = srcinfo.image_width/16*16;
-	
-	printf("dstinfo.image_height: %d, dstinfo.image_width: %d\n", dstinfo.image_height, dstinfo.image_width);
-	/* Adjust destination parameters if required by transform options;
-	* also find out which set of coefficient arrays will hold the output.
-	*/
-	
-#if TRANSFORMS_SUPPORTED
-	dst_coef_arrays = jtransform_adjust_parameters(&srcinfo, &dstinfo,
-						 src_coef_arrays,
-						 &transformoption);
-#else
-	dst_coef_arrays = src_coef_arrays;
-#endif
-
-#if TRANSFORMS_SUPPORTED
-	printf("image_width: %d, image_height: %d, max_h_samp_factor * DCTSIZE: %d, max_v_samp_factor * DCTSIZE: %d\n",
-		srcinfo.image_width, srcinfo.image_height, srcinfo.max_h_samp_factor * DCTSIZE, srcinfo.max_v_samp_factor * DCTSIZE);
-	if (!jtransform_perfect_transform(srcinfo.image_width, srcinfo.image_height,
-	  srcinfo.max_h_samp_factor * DCTSIZE, srcinfo.max_v_samp_factor * DCTSIZE,
-	  transformoption.transform)) {
-		fprintf(stderr, "transformation is not perfect\n");
-		switch (transformoption.transform) {
-			case JXFORM_FLIP_H:
-			case JXFORM_ROT_270:
-				dstinfo.image_height = dstinfo.image_height/16*16;
-				break;
-			case JXFORM_FLIP_V:
-			case JXFORM_ROT_90:
-				dstinfo.image_width = dstinfo.image_height/16*16;
-				break;
-			case JXFORM_TRANSVERSE:
-			case JXFORM_ROT_180:
-				dstinfo.image_height = dstinfo.image_height/16*16;
-				dstinfo.image_width = dstinfo.image_width/16*16;
-				break;
-		}
-	}
-	printf("dstinfo.image_height: %d, dstinfo.image_width: %d\n", dstinfo.image_height, dstinfo.image_width);
-#endif
-	
-	if (fp != NULL)
-		fclose(fp);
-
-	/* Open the output file. */
-	//if ((fp = fopen((*p_request)->img_name, "wb")) == NULL) {
-	if ((fp = fopen(src_file, "wb")) == NULL) {
-		fprintf(stderr, "can't open %s for writing\n", src_file);
-	  	return -1;
-	}
-
-	/* Specify data destination for compression */
-	jpeg_stdio_dest(&dstinfo, fp);
-	
-	/* Start compressor (note no image data is actually written here) */
-	jpeg_write_coefficients(&dstinfo, dst_coef_arrays);
-
-	/* Copy to the output file any extra markers that we want to preserve */
-	jcopy_markers_execute(&srcinfo, &dstinfo, copyoption);
-
-	/* Execute image transformation, if any */	
-#if TRANSFORMS_SUPPORTED
-	jtransform_execute_transformation(&srcinfo, &dstinfo,
-				    src_coef_arrays,
-				    &transformoption);
-#endif
-
-	printf("dstinfo.image_height: %d, dstinfo.image_width: %d\n", dstinfo.image_height, dstinfo.image_width);
-	/* Finish compression and release memory */
-	jpeg_finish_compress(&dstinfo);
-	jpeg_destroy_compress(&dstinfo);
-	(void) jpeg_finish_decompress(&srcinfo);
-	jpeg_destroy_decompress(&srcinfo);
-
-	/* Close output file, if we opened it */
-	if (fp != stdout)
-	fclose(fp);
-
-	return 0;			/* suppress no-return-value warnings */
+	int ret = execute_process(cmd);
+	free(cmd);
+	return ret ;
 }
 
