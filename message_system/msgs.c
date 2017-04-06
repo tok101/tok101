@@ -785,6 +785,7 @@ int send_broadcast_message(const char* broadcast_message,const char *data)
 	char* topic = NULL;
 	if (!broadcast_message) {
 		LOG_E("broadcast_message is NULL, please check\n");
+		goto err;
 	}
 	if (data == NULL)
 		data = "";
