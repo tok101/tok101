@@ -35,38 +35,21 @@ static int generate_sequence()
 	return g_info_service.seq++;
 }
 
-static int send_login_request(char* DeviceID, char* CheckSum)
+
+int handle_device_login_session_error( int errcode, struct request_session* session)
 {
-	int len = 0;
-	char* buffer = generate_login_request(&len);
-	int fd = 0;
-	fd = get_socket_fd();
-	
-	send_out_request(fd, buffer, len);
+	login_callback* cb = session->usercb;
+	cb(session->sequence, errcode, -1, "", NULL, 0);
 	return 0;
 }
 
-static wait_for_login_resp(void *arg)
-{
-	
-	return 0;
-}
 
-static int wait_for_login_resp_async(int fd, login_callback* cb, int sequence)
-{ 
-	int ret;    
-	pthread_t thread1;
-	memset(&thread1, 0, sizeof(thread1)); 
-	if((ret = pthread_create(&thread1, NULL, , NULL)) != 0)
-	return 0;
-}
-
-int device_login(char* DeviceID, char* CheckSum, login_callback* cb, int* sequence)
+int device_login(char* DeviceID, char* CheckSum, login_callback* usercb, int* sequence)
 {
 	int ret = 0;
-	if (!DeviceID || !CheckSum || !cb) {
+	if (!DeviceID || !CheckSum || !usercb) {
 		LOG_E("some arguments are null, deviceid(%p),checksum(%p),callback(%p), device_login failed.\n", 
-				DeviceID, CheckSum, cb);
+				DeviceID, CheckSum, usercb);
 		return -INFOSERVICE_EINVAL;
 	}
 	SERVICELOCK;
@@ -75,10 +58,27 @@ int device_login(char* DeviceID, char* CheckSum, login_callback* cb, int* sequen
 		goto out;
 	}
 	*sequence = generate_sequence();
-	int fd = send_login_request(DeviceID, CheckSum);
-	wait_for_login_resp_async(fd, cb, *sequence);	
+	CURL *curl = NULL;
+	if ( (ret = device_login_generate_curl(&curl, g_info_service.addr, DeviceID, CheckSum)) < 0)
+		goto out;
+	struct request_session* session = NULL;
+	if ( (ret = create_request_session(&session, curl, &handle_device_login_respond, 
+										&handle_device_login_session_error, usercb, *sequence)) < 0) {
+		SAFE_DESTROY_CURL(curl);
+		goto out;
+	}
+	if ( (ret = request_asyn(session)) < 0) {
+		SAFE_DESTROY_SESSION(session);
+		goto out;
+	}
 out:
 	SERVICEUNLOCK;
 	return ret;
+}
+
+int device_login_sync(char* DeviceID, char* CheckSum, login_callback* usercb, int* sequence)
+{
+	device_login_async();
+	return 0;
 }
 
